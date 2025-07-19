@@ -2,13 +2,16 @@
 
 #include <Arduino.h>
 
-#define SERIAL_NUMBER "125B0-2-3"
+#define SERIAL_NUMBER "225B0-2-3"
 #define OTA_PASSWORD "L1ghtN0d3@2024"
-#define SERVER_PORT 8000
+#define DEVICE_HOSTNAME "lightmaster.local"
+// #define DEVICE_HOSTNAME "192.168.18.135"
+#define SERVER_PORT 80
 #define WIFI_AP_CONFIG_PORTAL_TIMEOUT 180 // 3 minute
 #define MIN_SPIFFS_WRITE_INTERVAL 10 // Minimum interval in seconds
 #define MAX_SPIFFS_WRITES_COUNTS 20 // Maximum writes for longer durations
 #define MAX_DISCONNECT_COUNTS 4 // Maximum failed heartbeat before device restart
+#define GRACE_PERIOD_SECONDS 3 // Added seconds every start of rated time
 
 //API URLs
 #define REGISTER_DEVICE_URL "/api/device/insert"
@@ -33,7 +36,7 @@
 
 // Memory assignment
 #define IP_STRING 0                 // 16 bytes
-#define HOSTNAME 17                 // 50 bytes
+//#define HOSTNAME 17                 // 50 bytes
 #define DEVICE_ID 67                // 5 bytes
 #define WATCHDOG_INTERVAL_MINUTES 72 // 5 bytes
 #define STORED_TIME_IN_SECONDS 77   // 5 bytes

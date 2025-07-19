@@ -11,7 +11,6 @@
 #include <ArduinoJson.h>
 #include <Ticker.h>
 #include <ArduinoOTA.h>
-#include <FirebaseESP8266.h>
 #include <WiFiManager.h>
 
 #endif // SHARED_LIBRARIES_H

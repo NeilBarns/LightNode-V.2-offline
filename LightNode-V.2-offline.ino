@@ -304,7 +304,7 @@ void SetupServerAPI()
                         }
                         else
                         {
-                            timeInSeconds = timeInSeconds + 5; //Add 5 seconds of grace period
+                            timeInSeconds = timeInSeconds + GRACE_PERIOD_SECONDS;
                         }
                         
                         temp_storedTimeInSeconds += timeInSeconds;
@@ -971,7 +971,7 @@ void RegisterUpdateDevice(bool restartDevice)
   WiFiClient client;
   HTTPClient http;
   bool isInsert = false;
-  http.setTimeout(10000);
+  http.setTimeout(50000);
   IPAddress ipAddress = WiFi.localIP();
   byte ip[4] = { ipAddress[0], ipAddress[1], ipAddress[2], ipAddress[3] };
   EEPROM.put(IP_STRING, ip);
@@ -1062,6 +1062,8 @@ bool SentOnRestartHeartbeat()
 {
   WiFiClient client;
   HTTPClient http;
+
+  http.setTimeout(20000);
   
   Serial.println(String(hostURL) + HEARTBEAT_DEVICE_URL);
   http.begin(client, String(hostURL) + HEARTBEAT_DEVICE_URL); 
@@ -1071,10 +1073,11 @@ bool SentOnRestartHeartbeat()
   String payload = F("{"); //Payload JSON Opening
   payload += F("\"DeviceID\":") + String(deviceId) + F(",");
   payload += F("\"SerialNumber\":\"") + String(SERIAL_NUMBER) + F("\",");
-  payload += F("\"OnRestart\":\"") + String(onRestart) + F("\"");
+  payload += F("\"OnRestart\":") + String(onRestart ? "true" : "false");
   payload += F("}"); //Payload JSON Closure
 
   http.addHeader(F("Content-Type"), F("application/json"));
+  http.addHeader("Accept", "application/json");
 
   Serial.println(String(payload));
 
@@ -1107,7 +1110,8 @@ void SendRegularHeartbeat()
   String payload = F("{"); //Payload JSON Opening
   payload += F("\"DeviceID\":") + String(deviceId) + F(",");
   payload += F("\"SerialNumber\":\"") + String(SERIAL_NUMBER) + F("\",");
-  payload += F("\"OnRestart\":\"") + String(onRestart) + F("\"");
+  // payload += F("\"OnRestart\":\"") + String(onRestart) + F("\"");
+  payload += F("\"OnRestart\":") + String(onRestart ? "true" : "false");
   payload += F("}"); //Payload JSON Closure
 
   http.addHeader(F("Content-Type"), F("application/json"));
@@ -1194,12 +1198,10 @@ void ConnectToWiFi() {
     wifiManager.setConfigPortalTimeout(WIFI_AP_CONFIG_PORTAL_TIMEOUT);
     wifiManager.setDebugOutput(true);
 
-    // Add a custom parameter for hostname
-    WiFiManagerParameter hostName("hostname", "Hostname", deviceHostname, 50);
-    wifiManager.addParameter(&hostName);
-
     // Attempt to connect to WiFi or start AP mode
     Serial.println("Attempting to connect to Wi-Fi...");
+    digitalWrite(AP_LED_PIN, HIGH);
+    
     if (!wifiManager.autoConnect(APSSID.c_str())) {
         Serial.println("Failed to connect. Entering AP mode...");
         WiFi.mode(WIFI_AP);
@@ -1215,15 +1217,9 @@ void ConnectToWiFi() {
         Serial.println("Signal Strength: " + String(WiFi.RSSI()));
         Serial.println("IP Address: " + WiFi.localIP().toString());
 
-        // Validate and save the updated hostname after connecting
-        const char* newHostname = hostName.getValue();
-        if (strlen(newHostname) > 0 && strlen(newHostname) < sizeof(deviceHostname)) {
-            strncpy(deviceHostname, newHostname, sizeof(deviceHostname) - 1);
-            deviceHostname[sizeof(deviceHostname) - 1] = '\0'; // Ensure null-termination
-            saveHostnameToEEPROM(deviceHostname); // Save to EEPROM
-        } else {
-            Serial.println("Invalid hostname. Skipping update.");
-        }
+        // Set fixed hostname
+        strncpy(deviceHostname, DEVICE_HOSTNAME, sizeof(deviceHostname) - 1);
+        deviceHostname[sizeof(deviceHostname) - 1] = '\0';
 
         // Update LEDs and clear logs
         digitalWrite(LED_BUILTIN, LOW);
@@ -1242,25 +1238,13 @@ void ConnectToWiFi() {
     Serial.println("Connected to Wi-Fi successfully!");
 }
 
-void saveHostnameToEEPROM(const char* hostname) {
-    char tempHostname[50] = {0}; 
-    strncpy(tempHostname, hostname, sizeof(tempHostname) - 1); 
-    EEPROM.put(HOSTNAME, tempHostname); 
-    EEPROM.commit();
-    
-    snprintf(hostURL, sizeof(hostURL), "http://%s:%d", hostname, SERVER_PORT);
-    Serial.print("Host URL: ");
-    Serial.println(String(hostURL));
-}
-
 void LoadConfig() {
     // Ensure buffers are clear before reading
     memset(ipString, 0, sizeof(ipString));
     memset(deviceHostname, 0, sizeof(deviceHostname));
-
+  
     // Read data from EEPROM
     EEPROM.get(IP_STRING, ipString);
-    EEPROM.get(HOSTNAME, deviceHostname);
     EEPROM.get(DEVICE_ID, deviceId);
     EEPROM.get(WATCHDOG_INTERVAL_MINUTES, watchdogIntervalMinutes);
     EEPROM.get(STORED_TIME_IN_SECONDS, storedTimeInSeconds);
@@ -1274,14 +1258,18 @@ void LoadConfig() {
     EEPROM.get(THREAD, thread);
     EEPROM.get(SPIFFS_WRITE_INTERVAL, writeInterval);
 
-    // Null-terminate strings to ensure safe string operations
+    // Null-terminate ipString from EEPROM
     ipString[sizeof(ipString) - 1] = '\0';
+
+    // Use constant hostname
+    strncpy(deviceHostname, DEVICE_HOSTNAME, sizeof(deviceHostname) - 1);
     deviceHostname[sizeof(deviceHostname) - 1] = '\0';
 
     snprintf(hostURL, sizeof(hostURL), "http://%s:%d", deviceHostname, SERVER_PORT);
     Serial.print("Host URL: ");
     Serial.println(String(hostURL));
 }
+
 
 void InitializeSerial() {
     Serial.begin(115200);
