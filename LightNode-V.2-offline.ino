@@ -147,6 +147,8 @@ void loop() {
   HandleAPButtonLongPress();
 
   IndicateDisconnectionStatus();
+
+  IndicateManualModeStatus();
 }
 
 bool resolveMdnsOnce() {
@@ -312,99 +314,104 @@ void SetupServerAPI() {
     int currentThread = 0;
     String spanType = "START";
 
-    if (server.hasArg("plain")) {
-      String body = server.arg("plain");
-      Serial.println("Request body: " + body);
+    if (isManualMode) {
+      errorMessage = "Manual mode";
+      errorOccurred = true;
+    } else {
+      if (server.hasArg("plain")) {
+        String body = server.arg("plain");
+        Serial.println("Request body: " + body);
 
-      // Parse JSON body
-      StaticJsonDocument<256> doc;
-      DeserializationError error = deserializeJson(doc, body);
+        // Parse JSON body
+        StaticJsonDocument<256> doc;
+        DeserializationError error = deserializeJson(doc, body);
 
-      if (error) {
-        errorMessage = "Invalid JSON in request body";
-        errorOccurred = true;
-        Serial.println("ERROR: " + errorMessage);
-      } else {
-        // Extract values from the parsed JSON
-        int timeInSeconds = doc["time"] | 0;
-        int transactionThread = doc["thread"] | 0;
-        const char* startDateTimeArg = doc["startdatetime"] | "";
-        int device_id = doc["device_id"];
-        isLEDOn = true;
-        isOpenTime = false;
-
-        Serial.println("time: " + String(timeInSeconds));
-        Serial.println("thread: " + String(transactionThread));
-        Serial.println("startDateTime: " + String(startDateTimeArg));
-
-        //Validate device id
-        if (device_id != deviceId) {
-          errorMessage = "Device does not match the configuration.";
+        if (error) {
+          errorMessage = "Invalid JSON in request body";
           errorOccurred = true;
           Serial.println("ERROR: " + errorMessage);
         } else {
-          // Validate and process values
-          if (timeInSeconds <= 0) {
-            errorMessage = "Invalid or negative time value!";
+          // Extract values from the parsed JSON
+          int timeInSeconds = doc["time"] | 0;
+          int transactionThread = doc["thread"] | 0;
+          const char* startDateTimeArg = doc["startdatetime"] | "";
+          int device_id = doc["device_id"];
+          isLEDOn = true;
+          isOpenTime = false;
+
+          Serial.println("time: " + String(timeInSeconds));
+          Serial.println("thread: " + String(transactionThread));
+          Serial.println("startDateTime: " + String(startDateTimeArg));
+
+          //Validate device id
+          if (device_id != deviceId) {
+            errorMessage = "Device does not match the configuration.";
             errorOccurred = true;
             Serial.println("ERROR: " + errorMessage);
           } else {
-            temp_storedTimeInSeconds = ReadTimeFromSPIFFS();
-
-            Serial.println("storedTimeInSeconds value from EEPROM: " + String(temp_storedTimeInSeconds));
-            if (temp_storedTimeInSeconds < 0) {
-              errorMessage = "Failed to read time from EEPROM.";
+            // Validate and process values
+            if (timeInSeconds <= 0) {
+              errorMessage = "Invalid or negative time value!";
               errorOccurred = true;
               Serial.println("ERROR: " + errorMessage);
             } else {
-              if (temp_storedTimeInSeconds > 0) {
-                spanType = "EXTEND";
-              } else {
-                timeInSeconds = timeInSeconds + GRACE_PERIOD_SECONDS;
-              }
+              temp_storedTimeInSeconds = ReadTimeFromSPIFFS();
 
-              temp_storedTimeInSeconds += timeInSeconds;
-              storedTimeInSeconds = temp_storedTimeInSeconds;
-              writeInterval = CalculateWriteInterval(storedTimeInSeconds);
-
-              Serial.println("Calculated Write Interval: " + String(writeInterval));
-
-              // Store values in EEPROM
-              char startDateTime[20];
-              strncpy(startDateTime, startDateTimeArg, sizeof(startDateTime) - 1);
-              startDateTime[sizeof(startDateTime) - 1] = '\0';
-              EEPROM.get(THREAD, currentThread);
-
-              if (transactionThread > 0) {
-                EEPROM.put(THREAD, transactionThread);
-                EEPROM.put(START_DATE_TIME, startDateTime);
-              }
-
-              EEPROM.put(STORED_TIME_IN_SECONDS, storedTimeInSeconds);
-              EEPROM.put(IS_LED_ON, isLEDOn);
-              EEPROM.put(IS_OPEN_TIME, isOpenTime);
-              EEPROM.put(SPIFFS_WRITE_INTERVAL, writeInterval);
-
-              if (!EEPROM.commit()) {
-                errorMessage = "Failed to commit data to EEPROM.";
+              Serial.println("storedTimeInSeconds value from EEPROM: " + String(temp_storedTimeInSeconds));
+              if (temp_storedTimeInSeconds < 0) {
+                errorMessage = "Failed to read time from EEPROM.";
                 errorOccurred = true;
                 Serial.println("ERROR: " + errorMessage);
               } else {
-                if (!WriteTimeToSPIFFS(storedTimeInSeconds)) {
-                  errorMessage = "Failed to write time to SPIFFS.";
-                  errorOccurred = true;
+                if (temp_storedTimeInSeconds > 0) {
+                  spanType = "EXTEND";
                 } else {
-                  //Turn on the light/relay
-                  digitalWrite(RELAY_PIN, HIGH);
+                  timeInSeconds = timeInSeconds + GRACE_PERIOD_SECONDS;
+                }
+
+                temp_storedTimeInSeconds += timeInSeconds;
+                storedTimeInSeconds = temp_storedTimeInSeconds;
+                writeInterval = CalculateWriteInterval(storedTimeInSeconds);
+
+                Serial.println("Calculated Write Interval: " + String(writeInterval));
+
+                // Store values in EEPROM
+                char startDateTime[20];
+                strncpy(startDateTime, startDateTimeArg, sizeof(startDateTime) - 1);
+                startDateTime[sizeof(startDateTime) - 1] = '\0';
+                EEPROM.get(THREAD, currentThread);
+
+                if (transactionThread > 0) {
+                  EEPROM.put(THREAD, transactionThread);
+                  EEPROM.put(START_DATE_TIME, startDateTime);
+                }
+
+                EEPROM.put(STORED_TIME_IN_SECONDS, storedTimeInSeconds);
+                EEPROM.put(IS_LED_ON, isLEDOn);
+                EEPROM.put(IS_OPEN_TIME, isOpenTime);
+                EEPROM.put(SPIFFS_WRITE_INTERVAL, writeInterval);
+
+                if (!EEPROM.commit()) {
+                  errorMessage = "Failed to commit data to EEPROM.";
+                  errorOccurred = true;
+                  Serial.println("ERROR: " + errorMessage);
+                } else {
+                  if (!WriteTimeToSPIFFS(storedTimeInSeconds)) {
+                    errorMessage = "Failed to write time to SPIFFS.";
+                    errorOccurred = true;
+                  } else {
+                    //Turn on the light/relay
+                    digitalWrite(RELAY_PIN, HIGH);
+                  }
                 }
               }
             }
           }
         }
+      } else {
+        errorMessage = "Missing request body";
+        errorOccurred = true;
       }
-    } else {
-      errorMessage = "Missing request body";
-      errorOccurred = true;
     }
 
     // Respond to the client
@@ -425,63 +432,68 @@ void SetupServerAPI() {
     String errorMessage;
     int currentThread = 0;
 
-    if (server.hasArg("plain")) {
-      String body = server.arg("plain");
-      Serial.println("Request body: " + body);
+    if (isManualMode) {
+      errorMessage = "Manual mode";
+      errorOccurred = true;
+    } else {
+      if (server.hasArg("plain")) {
+        String body = server.arg("plain");
+        Serial.println("Request body: " + body);
 
-      // Parse JSON body
-      StaticJsonDocument<256> doc;
-      DeserializationError error = deserializeJson(doc, body);
+        // Parse JSON body
+        StaticJsonDocument<256> doc;
+        DeserializationError error = deserializeJson(doc, body);
 
-      if (error) {
-        errorMessage = "Invalid JSON in request body";
-        errorOccurred = true;
-        Serial.println("ERROR: " + errorMessage);
-      } else {
-        // Extract values from the parsed JSON
-        int transactionThread = doc["thread"] | 0;
-        const char* startDateTimeArg = doc["startdatetime"] | "";
-        isLEDOn = true;
-        isOpenTime = true;
-
-        Serial.println("thread: " + String(transactionThread));
-        Serial.println("startDateTime: " + String(startDateTimeArg));
-
-        storedTimeInSeconds = 0;
-        writeInterval = CalculateWriteInterval(storedTimeInSeconds);
-
-        Serial.println("Calculated Write Interval: " + String(writeInterval));
-
-        // Store values in EEPROM
-        char startDateTime[20];
-        strncpy(startDateTime, startDateTimeArg, sizeof(startDateTime) - 1);
-        startDateTime[sizeof(startDateTime) - 1] = '\0';
-        EEPROM.get(THREAD, currentThread);
-
-        EEPROM.put(THREAD, transactionThread);
-        EEPROM.put(START_DATE_TIME, startDateTime);
-        EEPROM.put(STORED_TIME_IN_SECONDS, 0);
-        EEPROM.put(IS_LED_ON, isLEDOn);
-        EEPROM.put(IS_OPEN_TIME, isOpenTime);
-        EEPROM.put(SPIFFS_WRITE_INTERVAL, writeInterval);
-
-        if (!EEPROM.commit()) {
-          errorMessage = "Failed to commit data to EEPROM.";
+        if (error) {
+          errorMessage = "Invalid JSON in request body";
           errorOccurred = true;
           Serial.println("ERROR: " + errorMessage);
         } else {
-          if (!WriteTimeToSPIFFS(storedTimeInSeconds)) {
-            errorMessage = "Failed to write time to SPIFFS.";
+          // Extract values from the parsed JSON
+          int transactionThread = doc["thread"] | 0;
+          const char* startDateTimeArg = doc["startdatetime"] | "";
+          isLEDOn = true;
+          isOpenTime = true;
+
+          Serial.println("thread: " + String(transactionThread));
+          Serial.println("startDateTime: " + String(startDateTimeArg));
+
+          storedTimeInSeconds = 0;
+          writeInterval = CalculateWriteInterval(storedTimeInSeconds);
+
+          Serial.println("Calculated Write Interval: " + String(writeInterval));
+
+          // Store values in EEPROM
+          char startDateTime[20];
+          strncpy(startDateTime, startDateTimeArg, sizeof(startDateTime) - 1);
+          startDateTime[sizeof(startDateTime) - 1] = '\0';
+          EEPROM.get(THREAD, currentThread);
+
+          EEPROM.put(THREAD, transactionThread);
+          EEPROM.put(START_DATE_TIME, startDateTime);
+          EEPROM.put(STORED_TIME_IN_SECONDS, 0);
+          EEPROM.put(IS_LED_ON, isLEDOn);
+          EEPROM.put(IS_OPEN_TIME, isOpenTime);
+          EEPROM.put(SPIFFS_WRITE_INTERVAL, writeInterval);
+
+          if (!EEPROM.commit()) {
+            errorMessage = "Failed to commit data to EEPROM.";
             errorOccurred = true;
+            Serial.println("ERROR: " + errorMessage);
           } else {
-            //Turn on the light/relay
-            digitalWrite(RELAY_PIN, HIGH);
+            if (!WriteTimeToSPIFFS(storedTimeInSeconds)) {
+              errorMessage = "Failed to write time to SPIFFS.";
+              errorOccurred = true;
+            } else {
+              //Turn on the light/relay
+              digitalWrite(RELAY_PIN, HIGH);
+            }
           }
         }
+      } else {
+        errorMessage = "Missing request body";
+        errorOccurred = true;
       }
-    } else {
-      errorMessage = "Missing request body";
-      errorOccurred = true;
     }
 
     // Respond to the client
@@ -587,58 +599,63 @@ void SetupServerAPI() {
     isPaused = false;
     isLEDOn = true;
 
-    if (server.hasArg("plain")) {
-      String body = server.arg("plain");
-      Serial.println("Request body: " + body);
+    if (isManualMode) {
+      errorMessage = "Manual mode";
+      errorOccurred = true;
+    } else {
+      if (server.hasArg("plain")) {
+        String body = server.arg("plain");
+        Serial.println("Request body: " + body);
 
-      // Parse JSON body
-      StaticJsonDocument< 256 > doc;
-      DeserializationError error = deserializeJson(doc, body);
+        // Parse JSON body
+        StaticJsonDocument< 256 > doc;
+        DeserializationError error = deserializeJson(doc, body);
 
-      if (error) {
-        errorMessage = "Invalid JSON in request body";
-        errorOccurred = true;
-        Serial.println("ERROR: " + errorMessage);
-      } else {
-        // Extract values from the parsed JSON
-        int timeInSeconds = doc["remainingTime"] | 0;
-        bool isOpenTime = doc["openTime"];
-
-        Serial.println("remainingTime: " + String(timeInSeconds));
-
-        // Validate and process values
-        if (timeInSeconds <= 0) {
-          errorMessage = "Invalid or negative time value!";
+        if (error) {
+          errorMessage = "Invalid JSON in request body";
           errorOccurred = true;
           Serial.println("ERROR: " + errorMessage);
         } else {
-          storedTimeInSeconds = timeInSeconds;
-          currentThread = 0;
-          EEPROM.get(THREAD, currentThread);
-          EEPROM.put(IS_PAUSED, isPaused);
-          EEPROM.put(IS_OPEN_TIME, isOpenTime);
-          EEPROM.put(STORED_TIME_IN_SECONDS, storedTimeInSeconds);
-          EEPROM.put(IS_PAUSED, isPaused);
-          EEPROM.put(IS_LED_ON, isLEDOn);
+          // Extract values from the parsed JSON
+          int timeInSeconds = doc["remainingTime"] | 0;
+          bool isOpenTime = doc["openTime"];
 
-          if (!EEPROM.commit()) {
-            errorMessage = "Failed to commit data to EEPROM.";
+          Serial.println("remainingTime: " + String(timeInSeconds));
+
+          // Validate and process values
+          if (timeInSeconds <= 0) {
+            errorMessage = "Invalid or negative time value!";
             errorOccurred = true;
             Serial.println("ERROR: " + errorMessage);
           } else {
-            if (!WriteTimeToSPIFFS(storedTimeInSeconds)) {
-              errorMessage = "Failed to write time to SPIFFS.";
+            storedTimeInSeconds = timeInSeconds;
+            currentThread = 0;
+            EEPROM.get(THREAD, currentThread);
+            EEPROM.put(IS_PAUSED, isPaused);
+            EEPROM.put(IS_OPEN_TIME, isOpenTime);
+            EEPROM.put(STORED_TIME_IN_SECONDS, storedTimeInSeconds);
+            EEPROM.put(IS_PAUSED, isPaused);
+            EEPROM.put(IS_LED_ON, isLEDOn);
+
+            if (!EEPROM.commit()) {
+              errorMessage = "Failed to commit data to EEPROM.";
               errorOccurred = true;
+              Serial.println("ERROR: " + errorMessage);
             } else {
-              //Turn on the light/relay
-              digitalWrite(RELAY_PIN, HIGH);
+              if (!WriteTimeToSPIFFS(storedTimeInSeconds)) {
+                errorMessage = "Failed to write time to SPIFFS.";
+                errorOccurred = true;
+              } else {
+                //Turn on the light/relay
+                digitalWrite(RELAY_PIN, HIGH);
+              }
             }
           }
         }
+      } else {
+        errorMessage = "Missing request body";
+        errorOccurred = true;
       }
-    } else {
-      errorMessage = "Missing request body";
-      errorOccurred = true;
     }
 
     if (errorOccurred) {
@@ -709,58 +726,63 @@ void SetupServerAPI() {
     String errorMessage;
     int currentThread = 0;
 
-    if (server.hasArg("plain")) {
-      String body = server.arg("plain");
-      Serial.println("Request body: " + body);
+    if (isManualMode) {
+      errorMessage = "Manual mode";
+      errorOccurred = true;
+    } else {
+      if (server.hasArg("plain")) {
+        String body = server.arg("plain");
+        Serial.println("Request body: " + body);
 
-      // Parse JSON body
-      StaticJsonDocument<256> doc;
-      DeserializationError error = deserializeJson(doc, body);
+        // Parse JSON body
+        StaticJsonDocument<256> doc;
+        DeserializationError error = deserializeJson(doc, body);
 
-      if (error) {
-        errorMessage = "Invalid JSON in request body";
-        errorOccurred = true;
-        Serial.println("ERROR: " + errorMessage);
-      } else {
-        // Extract values from the parsed JSON
-        int transactionThread = doc["thread"] | 0;
-        int timeInSeconds = doc["span"] | 0;
-        isFree = true;
-
-        Serial.println("time: " + String(timeInSeconds));
-        Serial.println("thread: " + String(transactionThread));
-
-        if (timeInSeconds <= 0) {
-          errorMessage = "Invalid or negative time value!";
+        if (error) {
+          errorMessage = "Invalid JSON in request body";
           errorOccurred = true;
           Serial.println("ERROR: " + errorMessage);
         } else {
-          storedTimeInSeconds = timeInSeconds;
-          writeInterval = 1000;
+          // Extract values from the parsed JSON
+          int transactionThread = doc["thread"] | 0;
+          int timeInSeconds = doc["span"] | 0;
+          isFree = true;
 
-          EEPROM.put(THREAD, transactionThread);
-          EEPROM.put(STORED_TIME_IN_SECONDS, storedTimeInSeconds);
-          EEPROM.put(IS_FREE, isFree);
-          EEPROM.put(SPIFFS_WRITE_INTERVAL, writeInterval);
+          Serial.println("time: " + String(timeInSeconds));
+          Serial.println("thread: " + String(transactionThread));
 
-          if (!EEPROM.commit()) {
-            errorMessage = "Failed to commit data to EEPROM.";
+          if (timeInSeconds <= 0) {
+            errorMessage = "Invalid or negative time value!";
             errorOccurred = true;
             Serial.println("ERROR: " + errorMessage);
           } else {
-            if (!WriteTimeToSPIFFS(storedTimeInSeconds)) {
-              errorMessage = "Failed to write time to SPIFFS.";
+            storedTimeInSeconds = timeInSeconds;
+            writeInterval = 1000;
+
+            EEPROM.put(THREAD, transactionThread);
+            EEPROM.put(STORED_TIME_IN_SECONDS, storedTimeInSeconds);
+            EEPROM.put(IS_FREE, isFree);
+            EEPROM.put(SPIFFS_WRITE_INTERVAL, writeInterval);
+
+            if (!EEPROM.commit()) {
+              errorMessage = "Failed to commit data to EEPROM.";
               errorOccurred = true;
+              Serial.println("ERROR: " + errorMessage);
             } else {
-              //Turn on the light/relay
-              digitalWrite(RELAY_PIN, HIGH);
+              if (!WriteTimeToSPIFFS(storedTimeInSeconds)) {
+                errorMessage = "Failed to write time to SPIFFS.";
+                errorOccurred = true;
+              } else {
+                //Turn on the light/relay
+                digitalWrite(RELAY_PIN, HIGH);
+              }
             }
           }
         }
+      } else {
+        errorMessage = "Missing request body";
+        errorOccurred = true;
       }
-    } else {
-      errorMessage = "Missing request body";
-      errorOccurred = true;
     }
 
     // Respond to the client
@@ -833,18 +855,20 @@ void SetupServerAPI() {
         errorMessage = "Invalid JSON in request body";
         Serial.println("ERROR: " + errorMessage);
       } else {
-        String emergencyPasskey = doc["emergencyPasskey"] | "";
+        const char* emergencyPasskey = doc["emergencyPasskey"] | "";
 
-        if (emergencyPasskey.length() == 0) {
+        if (strlen(emergencyPasskey) == 0) {
           errorOccurred = true;
           errorMessage = "emergencyPasskey field is missing or empty";
           Serial.println("ERROR: " + errorMessage);
         } else {
           // Save passkey
-          isFree = true;
-          Serial.println("Emergency Passkey: " + emergencyPasskey);
+          Serial.println(String("Emergency Passkey: ") + emergencyPasskey);
 
-          EEPROM.put(EMERGENCYPASSKEY, emergencyPasskey);
+          char passkeyBuffer[50];
+          strncpy(passkeyBuffer, emergencyPasskey, sizeof(passkeyBuffer) - 1);
+          passkeyBuffer[sizeof(passkeyBuffer) - 1] = '\0';
+          EEPROM.put(EMERGENCYPASSKEY, passkeyBuffer);
 
           if (!EEPROM.commit()) {
             errorOccurred = true;
@@ -1088,12 +1112,18 @@ void RegisterUpdateDevice(bool restartDevice) {
     if (!error) {
       int returned_deviceId = doc["device_id"];
       int returned_defaultWatchdogInterval = doc["default_watchdog_interval"];
+      const char* tempPasskey = doc["default_emergency_passkey"] | "";
 
       EEPROM.put(DEVICE_ID, returned_deviceId);
 
       if (watchdogIntervalMinutes < 1) {
         EEPROM.put(WATCHDOG_INTERVAL_MINUTES, returned_defaultWatchdogInterval);
       }
+
+      char passkeyBuffer[50];
+      strncpy(passkeyBuffer, tempPasskey, sizeof(passkeyBuffer) - 1);
+      passkeyBuffer[sizeof(passkeyBuffer) - 1] = '\0';
+      EEPROM.put(EMERGENCYPASSKEY, passkeyBuffer);
 
       isRegistered = true;
       EEPROM.put(IS_REGISTERED, isRegistered);
@@ -1134,7 +1164,7 @@ void IndicateDisconnectionStatus() {
 
   if (disconnectCounter > 0) {
     if (!inBlinkCycle && !inPause) {
-      blinkCount = disconnectCounter * 2;  
+      blinkCount = disconnectCounter * 2;
       inBlinkCycle = true;
       ledState = LOW;
       digitalWrite(ERROR_LED_PIN, ledState);
@@ -1150,18 +1180,37 @@ void IndicateDisconnectionStatus() {
       if (blinkCount <= 0) {
         inBlinkCycle = false;
         inPause = true;
-        digitalWrite(ERROR_LED_PIN, LOW); 
+        digitalWrite(ERROR_LED_PIN, LOW);
         previousMillis = currentMillis;
       }
     }
 
-    if (inPause && currentMillis - previousMillis >= 2000) {  
+    if (inPause && currentMillis - previousMillis >= 2000) {
       inPause = false;
     }
   } else {
     digitalWrite(ERROR_LED_PIN, LOW);
     inBlinkCycle = false;
     inPause = false;
+  }
+}
+
+void IndicateManualModeStatus() {
+  static unsigned long previousMillis = 0;
+  static bool ledState = LOW;
+
+  unsigned long currentMillis = millis();
+
+  if (isManualMode) {
+    if (currentMillis - previousMillis >= 1000) {  // 1 second interval
+      ledState = !ledState;
+      digitalWrite(PROCESSING_LED_PIN, ledState);
+      previousMillis = currentMillis;
+    }
+  } else {
+    digitalWrite(PROCESSING_LED_PIN, HIGH);  // solid ON in normal mode
+    ledState = LOW;
+    previousMillis = currentMillis;
   }
 }
 
@@ -1334,24 +1383,6 @@ void SetupEmergencyPortalUI(WiFiManager& wm) {
     EEPROM.put(IS_MANUAL_MODE, isManualMode);
     EEPROM.commit();
   });
-
-  ManualModeIndicator();
-}
-
-void ManualModeIndicator()
-{
-  if (isManualMode) {
-    // Turn on all LEDs if manual mode was active
-    digitalWrite(AP_LED_PIN, HIGH);
-    digitalWrite(ERROR_LED_PIN, HIGH);
-    digitalWrite(PROCESSING_LED_PIN, HIGH);
-  }
-  else
-  {
-    digitalWrite(AP_LED_PIN, LOW);
-    digitalWrite(ERROR_LED_PIN, LOW);
-    digitalWrite(PROCESSING_LED_PIN, HIGH);
-  }
 }
 
 void ConnectToWiFi() {
@@ -1366,12 +1397,12 @@ void ConnectToWiFi() {
   // Setup portal UI
   SetupEmergencyPortalUI(wifiManager);
 
-    // Start with all LEDs off
+  // Start with all LEDs off
   digitalWrite(AP_LED_PIN, LOW);
   digitalWrite(LED_BUILTIN, LOW);
   digitalWrite(PROCESSING_LED_PIN, LOW);
   digitalWrite(ERROR_LED_PIN, LOW);
-  
+
   wifiManager.setAPCallback(onEnterAPMode);
 
   // Try to auto-connect to WiFi
@@ -1380,9 +1411,9 @@ void ConnectToWiFi() {
     WiFi.mode(WIFI_AP);
     WiFi.softAP(APSSID.c_str());
 
-    digitalWrite(AP_LED_PIN, HIGH);        // Turn ON AP LED
-    digitalWrite(LED_BUILTIN, LOW);        // LED_BUILTIN remains OFF in AP mode
-    digitalWrite(PROCESSING_LED_PIN, LOW); // Ensure processing LED is OFF
+    digitalWrite(AP_LED_PIN, HIGH);         // Turn ON AP LED
+    digitalWrite(LED_BUILTIN, LOW);         // LED_BUILTIN remains OFF in AP mode
+    digitalWrite(PROCESSING_LED_PIN, LOW);  // Ensure processing LED is OFF
     digitalWrite(ERROR_LED_PIN, LOW);
 
     Serial.println("AP mode started. IP address:");
@@ -1392,8 +1423,8 @@ void ConnectToWiFi() {
     }
   }
 
-  digitalWrite(AP_LED_PIN, LOW);           // Turn OFF AP LED
-  digitalWrite(LED_BUILTIN, LOW);          // Ensure LED_BUILTIN is OFF
+  digitalWrite(AP_LED_PIN, LOW);   // Turn OFF AP LED
+  digitalWrite(LED_BUILTIN, LOW);  // Ensure LED_BUILTIN is OFF
   digitalWrite(ERROR_LED_PIN, LOW);
   digitalWrite(PROCESSING_LED_PIN, HIGH);  // Indicate processing mode
 
@@ -1416,12 +1447,10 @@ void ConnectToWiFi() {
   }
 
   Serial.println("Connected to Wi-Fi successfully!");
-
-  ManualModeIndicator();
 }
 
 void onEnterAPMode(WiFiManager* wm) {
-  digitalWrite(AP_LED_PIN, HIGH); 
+  digitalWrite(AP_LED_PIN, HIGH);
 }
 
 
@@ -1462,8 +1491,6 @@ void LoadConfig() {
 
   Serial.print("Host URL: ");
   Serial.println(String(hostURL));
-
-  ManualModeIndicator();
 }
 
 

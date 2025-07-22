@@ -2,7 +2,7 @@
 
 #include <Arduino.h>
 
-#define SERIAL_NUMBER "225B0-2-2"
+#define SERIAL_NUMBER "225B0-2-3"
 #define OTA_PASSWORD "L1ghtN0d3@2024"
 #define DEVICE_HOSTNAME "lightmaster.local"
 #define SERVER_PORT 80
