@@ -43,12 +43,12 @@ void setup() {
 
   delay(1000);
   InitializeSPIFFS();
-  InitializeComponents();
   InitializeOTA();
+  InitializeComponents();
 
   LoadConfig();
   ConnectToWiFi();
-  resolveMdnsOnce();
+  ResolveMdnsOnce();
 
   if (serverIP) {
     snprintf(hostURL, sizeof(hostURL), "http://%s", serverIP.toString().c_str());
@@ -61,13 +61,7 @@ void setup() {
 
   //    ForceReset(true); //Used to hard reset the device. Usually for testing purpose
 
-  if (!isManualMode) {
-    if (!isRegistered) {
-      RegisterUpdateDevice(true);
-    } else {
-      RegisterUpdateDevice(false);
-    }
-  }
+  RegisterOrUpdateDeviceIfNeeded();
 
   RemainingTimeCleanup();
 
@@ -151,7 +145,7 @@ void loop() {
   IndicateManualModeStatus();
 }
 
-bool resolveMdnsOnce() {
+bool ResolveMdnsOnce() {
   Serial.println("Resolving lightmaster.local...");
 
   int retries = 5;
@@ -863,8 +857,6 @@ void SetupServerAPI() {
           Serial.println("ERROR: " + errorMessage);
         } else {
           // Save passkey
-          Serial.println(String("Emergency Passkey: ") + emergencyPasskey);
-
           char passkeyBuffer[50];
           strncpy(passkeyBuffer, emergencyPasskey, sizeof(passkeyBuffer) - 1);
           passkeyBuffer[sizeof(passkeyBuffer) - 1] = '\0';
@@ -1060,6 +1052,37 @@ void DeleteDevice(bool errorOccured, String errorMessage) {
   } else {
   }
 }
+
+void RegisterOrUpdateDeviceIfNeeded() {
+  if (!isManualMode) {
+    if (!isRegistered || deviceId <= 0) {
+      Serial.println("Device is not registered. Registering now...");
+      RegisterUpdateDevice(true);
+    } else {
+      // Device is registered. Check if IP changed.
+      IPAddress ipAddress = WiFi.localIP();
+      byte currentIp[4] = { ipAddress[0], ipAddress[1], ipAddress[2], ipAddress[3] };
+      byte savedIp[4];
+      EEPROM.get(IP_STRING, savedIp);
+
+      bool ipChanged = false;
+      for (int i = 0; i < 4; i++) {
+        if (currentIp[i] != savedIp[i]) {
+          ipChanged = true;
+          break;
+        }
+      }
+
+      if (ipChanged) {
+        Serial.println("IP address has changed. Sending update request...");
+        RegisterUpdateDevice(false);
+      } else {
+        Serial.println("Device already registered and IP unchanged. No update needed.");
+      }
+    }
+  }
+}
+
 
 void RegisterUpdateDevice(bool restartDevice) {
   WiFiClient client;
@@ -1447,6 +1470,17 @@ void ConnectToWiFi() {
   }
 
   Serial.println("Connected to Wi-Fi successfully!");
+
+  delay(2000);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.println("Waiting for WiFi...");
+  }
+
+  while (!Ping.ping(WiFi.gatewayIP(), 3)) {
+    Serial.println("Gateway not reachable. Retrying in 2 seconds...");
+    delay(2000);
+  }
 }
 
 void onEnterAPMode(WiFiManager* wm) {
@@ -1496,9 +1530,6 @@ void LoadConfig() {
 
 void InitializeSerial() {
   Serial.begin(115200);
-  while (!Serial) {
-    ;  // Wait for Serial to initialize
-  }
   Serial.println("Serial interface initialized.");
 }
 
